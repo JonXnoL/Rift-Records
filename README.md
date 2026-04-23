@@ -1,7 +1,3 @@
-# Rift-Records
-When the time for Customs arrives....
-
-
 # ⚔ Rift Records — Local League of Legends Custom Match Tracker
 
 A Flask + SQLite web app for tracking in-house League of Legends custom games,
