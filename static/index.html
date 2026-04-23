@@ -1,0 +1,1520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rift Records — Local League Tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Exo+2:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #08090d;
+    --surface:   #0f1118;
+    --card:      #141720;
+    --border:    #1e2232;
+    --gold:      #c89b3c;
+    --gold-dim:  #7a5e23;
+    --blue:      #4fc3f7;
+    --blue-dim:  #1a4a66;
+    --red:       #e53935;
+    --red-dim:   #5c1010;
+    --green:     #43a047;
+    --green-dim: #1a3d1c;
+    --text:      #d8dce8;
+    --muted:     #5a607a;
+  }
+/* Crown + streak badges */
+.crown-badge {
+  font-size: .95rem;
+  margin-right: .25rem;
+  filter: drop-shadow(0 0 6px rgba(200,155,60,.9));
+  animation: crownPulse 2.5s ease-in-out infinite;
+}
+@keyframes crownPulse {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(200,155,60,.7)); }
+  50%       { filter: drop-shadow(0 0 12px rgba(200,155,60,1)); }
+}
+.streak-badge {
+  font-size: .8rem;
+  margin-left: .3rem;
+  animation: firePop .4s ease;
+}
+@keyframes firePop {
+  from { transform: scale(1.4); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* Golden glow on top MMR player rows/cards */
+.is-top-player {
+  border-color: var(--gold) !important;
+  box-shadow: 0 0 16px rgba(200,155,60,.25) !important;
+}
+.is-top-player::before { opacity: 1 !important; }
+
+/* Legend pills for MMR history */
+.legend-pill {
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .3rem .75rem; border-radius: 20px;
+  border: 1.5px solid transparent;
+  font-family: 'Rajdhani', sans-serif; font-size: .8rem; font-weight: 600;
+  letter-spacing: .06em; cursor: pointer; transition: all .2s;
+  user-select: none;
+}
+.legend-pill.muted { opacity: .3; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Exo 2', sans-serif; font-weight: 300;
+    min-height: 100vh; overflow-x: hidden;
+  }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image:
+      repeating-linear-gradient(60deg, transparent, transparent 40px, rgba(200,155,60,.03) 40px, rgba(200,155,60,.03) 41px),
+      repeating-linear-gradient(-60deg, transparent, transparent 40px, rgba(79,195,247,.03) 40px, rgba(79,195,247,.03) 41px);
+    pointer-events: none; z-index: 0;
+  }
+  #app { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+  header {
+    display: flex; align-items: center; gap: 1.5rem;
+    padding: 1.2rem 2.5rem; border-bottom: 1px solid var(--border);
+    background: rgba(8,9,13,.85); backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 100;
+  }
+  .logo { font-family: 'Rajdhani',sans-serif; font-size: 1.6rem; font-weight: 700; letter-spacing: .12em; color: var(--gold); text-transform: uppercase; white-space: nowrap; }
+  .logo span { color: var(--blue); }
+  .server-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-left: .5rem; transition: background .3s; }
+  .server-dot.online { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+  nav { display: flex; gap: .25rem; margin-left: auto; }
+  nav button { background: none; border: none; color: var(--muted); font-family: 'Rajdhani',sans-serif; font-size: 1rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; padding: .55rem 1.1rem; border-radius: 4px; cursor: pointer; transition: color .2s, background .2s; position: relative; }
+  nav button.active, nav button:hover { color: var(--gold); background: rgba(200,155,60,.08); }
+  nav button.active::after { content: ''; position: absolute; bottom: 0; left: 15%; right: 15%; height: 2px; background: var(--gold); border-radius: 2px; }
+
+  .page { display: none; padding: 2.5rem; animation: fadeSlide .35s ease; }
+  .page.active { display: block; }
+  @keyframes fadeSlide { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+  .page-title { font-family: 'Rajdhani',sans-serif; font-size: 1.9rem; font-weight: 700; letter-spacing: .1em; color: var(--gold); text-transform: uppercase; margin-bottom: .4rem; }
+  .page-sub { color: var(--muted); font-size: .85rem; letter-spacing: .05em; margin-bottom: 2rem; }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; transition: border-color .25s, box-shadow .25s; }
+  .card:hover { border-color: var(--gold-dim); box-shadow: 0 0 18px rgba(200,155,60,.07); }
+
+  .btn { font-family: 'Rajdhani',sans-serif; font-weight: 600; font-size: .95rem; letter-spacing: .07em; text-transform: uppercase; padding: .6rem 1.4rem; border-radius: 4px; border: none; cursor: pointer; transition: all .2s; }
+  .btn-gold { background: var(--gold); color: #08090d; }
+  .btn-gold:hover { background: #d9aa45; box-shadow: 0 0 16px rgba(200,155,60,.4); }
+  .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--gold-dim); color: var(--gold); }
+  .btn-red { background: var(--red-dim); color: var(--red); border: 1px solid rgba(229,57,53,.2); }
+  .btn-red:hover { background: rgba(229,57,53,.25); }
+  .btn-sm { padding: .35rem .8rem; font-size: .8rem; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  input, select { background: var(--surface); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: .55rem .9rem; font-family: 'Exo 2',sans-serif; font-size: .9rem; transition: border-color .2s; outline: none; }
+  input:focus, select:focus { border-color: var(--gold-dim); box-shadow: 0 0 0 2px rgba(200,155,60,.1); }
+  input::placeholder { color: var(--muted); }
+
+  /* Leaderboard */
+  .lb-table { width: 100%; border-collapse: collapse; }
+  .lb-table th { font-family: 'Rajdhani',sans-serif; font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-align: left; padding: .6rem .9rem; border-bottom: 1px solid var(--border); }
+  .lb-table td { padding: .75rem .9rem; border-bottom: 1px solid rgba(30,34,50,.5); vertical-align: middle; }
+  .lb-table tr:hover td { background: rgba(200,155,60,.03); }
+  .lb-table tr:last-child td { border-bottom: none; }
+  .rank-badge { font-family: 'Rajdhani',sans-serif; font-weight: 700; font-size: 1.1rem; width: 32px; display: inline-block; text-align: center; }
+  .rank-1 { color: var(--gold); }
+  .rank-2 { color: #aab4c8; }
+  .rank-3 { color: #cd7f32; }
+  .mmr-badge { font-family: 'Rajdhani',sans-serif; font-weight: 700; font-size: 1.05rem; color: var(--blue); }
+  .wr-bar { height: 5px; border-radius: 3px; background: var(--border); width: 80px; overflow: hidden; display: inline-block; vertical-align: middle; margin-left: .5rem; }
+  .wr-fill { height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--blue-dim), var(--blue)); transition: width .6s ease; }
+
+  /* Players */
+  .player-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; }
+  .player-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem 1.4rem; transition: all .25s; position: relative; overflow: hidden; }
+  .player-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, var(--gold-dim), var(--blue-dim)); opacity: 0; transition: opacity .25s; }
+  .player-card:hover { border-color: var(--gold-dim); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .player-card:hover::before { opacity: 1; }
+  .player-name { font-family: 'Rajdhani',sans-serif; font-size: 1.15rem; font-weight: 700; letter-spacing: .06em; color: var(--text); margin-bottom: .35rem; }
+  .player-mmr-label { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  .player-mmr-val { font-family: 'Rajdhani',sans-serif; font-size: 1.4rem; font-weight: 700; color: var(--blue); }
+  .player-stats { display: flex; gap: 1rem; margin-top: .75rem; font-size: .8rem; color: var(--muted); }
+  .stat-val { color: var(--text); font-weight: 600; }
+  .role-chips { display: flex; gap: .3rem; flex-wrap: wrap; margin-top: .6rem; }
+  .role-chip { font-size: .7rem; font-family: 'Rajdhani',sans-serif; font-weight: 600; letter-spacing: .06em; padding: .15rem .5rem; border-radius: 3px; background: var(--surface); border: 1px solid var(--border); color: var(--muted); }
+
+  /* Match history */
+  .match-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin-bottom: .75rem; overflow: hidden; transition: border-color .2s; }
+  .match-card:hover { border-color: var(--gold-dim); }
+  .match-header { display: flex; align-items: center; gap: 1rem; padding: .9rem 1.3rem; cursor: pointer; }
+  .match-date { font-size: .8rem; color: var(--muted); letter-spacing: .05em; min-width: 145px; }
+  .match-id { font-family: 'Rajdhani',sans-serif; font-weight: 700; color: var(--muted); font-size: .85rem; }
+  .match-chevron { margin-left: auto; color: var(--muted); transition: transform .25s; font-size: .8rem; }
+  .match-card.open .match-chevron { transform: rotate(180deg); }
+  .match-body { display: none; padding: 0 1.3rem 1.1rem; }
+  .match-card.open .match-body { display: block; animation: fadeSlide .2s ease; }
+  .team-row { display: flex; flex-wrap: wrap; gap: .5rem; padding: .6rem 0; border-bottom: 1px solid var(--border); align-items: center; }
+  .team-row:last-child { border-bottom: none; }
+  .team-label { font-family: 'Rajdhani',sans-serif; font-size: .75rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; padding: .2rem .5rem; border-radius: 3px; min-width: 54px; text-align: center; }
+  .team-blue-label { background: var(--blue-dim); color: var(--blue); }
+  .team-red-label { background: var(--red-dim); color: var(--red); }
+  .slot-tag { display: inline-flex; align-items: center; gap: .3rem; background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: .2rem .55rem; font-size: .8rem; }
+  .slot-role { font-size: .75rem; color: var(--muted); }
+
+  /* Add match form */
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  .form-section { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.4rem; }
+  .form-section-title { font-family: 'Rajdhani',sans-serif; font-size: 1rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 1rem; }
+  .blue-title { color: var(--blue); }
+  .red-title { color: var(--red); }
+  .slot-row { display: flex; align-items: center; gap: .6rem; margin-bottom: .6rem; }
+  .slot-label { font-size: .75rem; font-family: 'Rajdhani',sans-serif; font-weight: 600; letter-spacing: .08em; color: var(--muted); width: 60px; text-transform: uppercase; }
+  .slot-row select { flex: 1; }
+
+  /* Tier badges */
+  .mmr-tier { display: inline-block; font-family: 'Rajdhani',sans-serif; font-weight: 700; font-size: .8rem; letter-spacing: .1em; padding: .1rem .5rem; border-radius: 3px; text-transform: uppercase; }
+  .tier-iron    { background: #2a2a2a; color: #888; }
+  .tier-bronze  { background: #3d2012; color: #cd7f32; }
+  .tier-silver  { background: #1e2530; color: #aab4c8; }
+  .tier-gold    { background: #2a2000; color: var(--gold); }
+  .tier-plat    { background: #002a1e; color: #26c6a0; }
+  .tier-emerald { background: #002a14; color: #00e676; }
+  .tier-diamond { background: #001a3d; color: #8ab4f8; }
+  .tier-masters { background: #2a0030; color: #ce93d8; box-shadow: 0 0 8px rgba(206,147,216,.25); }
+
+  /* Misc */
+  .flex { display: flex; } .gap-1 { gap: .5rem; } .gap-2 { gap: 1rem; } .items-center { align-items: center; }
+  .mb-1 { margin-bottom: .5rem; } .mb-2 { margin-bottom: 1rem; }
+  .text-muted { color: var(--muted); font-size: .85rem; }
+  .badge-win  { background: var(--green-dim); color: var(--green); border-radius: 3px; padding: .1rem .45rem; font-size: .75rem; font-family: 'Rajdhani',sans-serif; font-weight: 700; letter-spacing: .06em; }
+  .badge-loss { background: var(--red-dim);   color: var(--red);   border-radius: 3px; padding: .1rem .45rem; font-size: .75rem; font-family: 'Rajdhani',sans-serif; font-weight: 700; letter-spacing: .06em; }
+  .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+  .empty-state .big-icon { font-size: 3rem; margin-bottom: .75rem; }
+
+  /* Loading spinner */
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--gold); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: .5rem; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Stats bar */
+  .stats-bar { display: flex; gap: 1.5rem; margin-bottom: 1.5rem; }
+  .stat-box { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1.4rem; flex: 1; }
+  .stat-box-label { font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .1em; font-family: 'Rajdhani',sans-serif; }
+  .stat-box-val { font-family: 'Rajdhani',sans-serif; font-size: 1.8rem; font-weight: 700; color: var(--gold); }
+
+  /* Toast */
+  #toast { position: fixed; bottom: 2rem; right: 2rem; background: var(--card); border: 1px solid var(--gold-dim); border-radius: 6px; padding: .75rem 1.2rem; font-family: 'Rajdhani',sans-serif; font-weight: 600; letter-spacing: .06em; color: var(--gold); box-shadow: 0 8px 32px rgba(0,0,0,.5); z-index: 999; opacity: 0; transform: translateY(12px); transition: opacity .3s, transform .3s; pointer-events: none; }
+  #toast.show { opacity: 1; transform: translateY(0); }
+  #toast.error { border-color: var(--red); color: var(--red); }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  /* Step bar */
+  .step-bar { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+  .step-item { display:flex; align-items:center; gap:.4rem; font-family:'Rajdhani',sans-serif; font-size:.85rem; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); transition:color .2s; }
+  .step-item.active { color:var(--gold); }
+  .step-item.done { color:var(--green); }
+  .step-num { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; border:1.5px solid currentColor; font-size:.75rem; font-weight:700; }
+  .step-arrow { color:var(--border); font-size:.85rem; }
+
+  /* Pool player toggle cards */
+  .pool-player-card { background:var(--surface); border:1.5px solid var(--border); border-radius:6px; padding:.6rem .9rem; cursor:pointer; transition:all .18s; user-select:none; display:flex; align-items:center; gap:.6rem; }
+  .pool-player-card:hover { border-color:var(--gold-dim); }
+  .pool-player-card.selected { border-color:var(--gold); background:rgba(200,155,60,.1); }
+  .pool-player-card.selected .pool-check { opacity:1; }
+  .pool-check { opacity:0; color:var(--gold); font-size:.9rem; margin-left:auto; transition:opacity .15s; }
+  .pool-pname { font-family:'Rajdhani',sans-serif; font-weight:600; font-size:.95rem; }
+  .pool-pmmr { font-size:.75rem; color:var(--muted); }
+
+  /* Draft method cards */
+  .draft-card { background:var(--card); border:1.5px solid var(--border); border-radius:8px; padding:1.1rem 1.3rem; cursor:pointer; transition:all .2s; }
+  .draft-card:hover { border-color:var(--gold-dim); transform:translateY(-1px); }
+  .draft-card.selected { border-color:var(--gold); background:rgba(200,155,60,.07); }
+  .draft-card-title { font-family:'Rajdhani',sans-serif; font-size:1rem; font-weight:700; letter-spacing:.07em; color:var(--text); margin-bottom:.3rem; }
+  .draft-card-desc { font-size:.8rem; color:var(--muted); line-height:1.5; }
+
+  /* Team split result cards */
+  .split-card { background:var(--card); border:1.5px solid var(--border); border-radius:8px; padding:1.1rem 1.3rem; cursor:pointer; transition:all .2s; }
+  .split-card:hover { border-color:var(--gold-dim); }
+  .split-card.selected { border-color:var(--gold); background:rgba(200,155,60,.06); }
+  .split-label { font-family:'Rajdhani',sans-serif; font-size:.75rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); margin-bottom:.5rem; }
+  .split-teams { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; }
+  .split-team-title { font-family:'Rajdhani',sans-serif; font-size:.8rem; font-weight:700; margin-bottom:.35rem; }
+  .split-mmr-diff { font-size:.75rem; color:var(--muted); margin-top:.5rem; }
+  .split-mmr-diff span { color:var(--gold); font-weight:600; }
+
+</style>
+</head>
+<body>
+<div id="app">
+
+<header>
+  <div class="logo">Rift<span>Records</span></div>
+  <div class="server-dot" id="server-dot" title="Server status"></div>
+  <nav>
+    <button class="active" onclick="navigate('leaderboard')">Leaderboard</button>
+    <button onclick="navigate('players')">Players</button>
+    <button onclick="navigate('matches')">Matches</button>
+    <button onclick="navigate('add-match')">+ Add Match</button>
+    <button onclick="navigate('history')">📈 MMR History</button>
+  </nav>
+</header>
+
+<!-- LEADERBOARD -->
+<div id="page-leaderboard" class="page active">
+  <div class="page-title">⚔ Leaderboard</div>
+  <div class="page-sub">Ranked by In-House MMR · Updates live after each match</div>
+  <div class="stats-bar" id="stats-bar">
+    <div class="stat-box"><div class="stat-box-label">Total Matches</div><div class="stat-box-val" id="stat-matches">—</div></div>
+    <div class="stat-box"><div class="stat-box-label">Summoners</div><div class="stat-box-val" id="stat-players">—</div></div>
+    <div class="stat-box"><div class="stat-box-label">Top Player</div><div class="stat-box-val" id="stat-top" style="font-size:1.2rem">—</div></div>
+  </div>
+  <div class="card">
+    <table class="lb-table">
+      <thead><tr><th>#</th><th>Summoner</th><th>MMR</th><th>Tier</th><th>W</th><th>L</th><th>Win Rate</th><th>Fav. Role</th></tr></thead>
+      <tbody id="lb-body"></tbody>
+    </table>
+    <div id="lb-empty" class="empty-state" style="display:none"><div class="big-icon">🏆</div><p>No players yet — add some players to get started!</p></div>
+    <div id="lb-loading" class="empty-state"><span class="spinner"></span> Loading...</div>
+  </div>
+</div>
+
+<!-- PLAYERS -->
+<div id="page-players" class="page">
+  <div class="page-title">👤 Player Bank</div>
+  <div class="page-sub">Manage summoners registered in the system</div>
+  <div class="flex gap-1 mb-1" style="max-width:560px;flex-wrap:wrap">
+    <input type="text" id="new-player-name" placeholder="Summoner name…" style="flex:2;min-width:160px" onkeydown="if(event.key==='Enter')addPlayer()">
+    <input type="number" id="new-player-mmr" placeholder="Starting MMR (optional)" min="100" max="9999" step="1" style="flex:1;min-width:140px" onkeydown="if(event.key==='Enter')addPlayer()">
+    <button class="btn btn-gold" id="add-player-btn" onclick="addPlayer()">Add</button>
+  </div>
+  <div class="text-muted mb-2" style="font-size:.78rem">Leave MMR blank to start at <strong style="color:var(--text)">1200</strong>. Set a custom value to place an experienced player at their estimated skill level.</div>
+  <div class="player-grid" id="player-grid"></div>
+  <div id="players-empty" class="empty-state" style="display:none"><div class="big-icon">⚔️</div><p>No players yet. Add your first summoner above!</p></div>
+  <div id="players-loading" class="empty-state"><span class="spinner"></span> Loading...</div>
+</div>
+
+<!-- MATCHES -->
+<div id="page-matches" class="page">
+  <div class="page-title">📜 Match History</div>
+  <div class="page-sub">All recorded custom games · click a row to expand</div>
+  <div id="match-list"></div>
+  <div id="matches-empty" class="empty-state" style="display:none"><div class="big-icon">🗡️</div><p>No matches recorded yet.</p></div>
+  <div id="matches-loading" class="empty-state"><span class="spinner"></span> Loading...</div>
+</div>
+
+<!-- ADD MATCH -->
+<div id="page-add-match" class="page">
+  <div class="page-title">+ Log Match</div>
+  <div class="page-sub">Select players · generate balanced teams · record result</div>
+
+  <!-- Step indicators -->
+  <div class="step-bar mb-2">
+    <div class="step-item active" id="step-ind-1"><span class="step-num">1</span> Player Pool</div>
+    <div class="step-arrow">→</div>
+    <div class="step-item" id="step-ind-2"><span class="step-num">2</span> Draft Method</div>
+    <div class="step-arrow">→</div>
+    <div class="step-item" id="step-ind-3"><span class="step-num">3</span> Review Teams</div>
+    <div class="step-arrow">→</div>
+    <div class="step-item" id="step-ind-4"><span class="step-num">4</span> Record Result</div>
+  </div>
+
+  <!-- STEP 1: Player pool selection -->
+  <div id="step-1">
+    <div class="card mb-2">
+      <div style="font-family:'Rajdhani',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem;">
+        Select exactly 10 players who are playing today
+        <span id="pool-count-label" style="color:var(--gold);margin-left:.75rem">0 / 10</span>
+      </div>
+      <input
+        type="text"
+        id="pool-search"
+        placeholder="Search players…"
+        oninput="filterPoolGrid()"
+        style="width:100%;max-width:320px;margin-bottom:1rem;"
+      >
+      <div id="pool-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.6rem;"></div>
+      <div id="pool-loading" style="color:var(--muted);font-size:.9rem;padding:.5rem 0"><span class="spinner"></span> Loading players…</div>
+      <div id="pool-empty" style="display:none;color:var(--muted);font-size:.9rem;padding:.5rem 0">No players in the database yet. Add players first!</div>
+    </div>
+    <button class="btn btn-gold" onclick="goToStep2()" id="step1-next">Next: Choose Draft →</button>
+    <span class="text-muted" id="step1-msg" style="margin-left:1rem"></span>
+  </div>
+
+  <!-- STEP 2: Draft method selection -->
+  <div id="step-2" style="display:none">
+    <div style="font-family:'Rajdhani',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem;">Choose a balancing method</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;margin-bottom:1.5rem" id="draft-methods"></div>
+
+    <!-- Captain picker — only shown when Captains mode is selected -->
+    <div id="captain-picker" style="display:none;margin-bottom:1.5rem">
+      <div style="font-family:'Rajdhani',sans-serif;font-size:.85rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:.75rem;">
+        Select the two captains — one will lead each team
+        <span id="cap-count-label" style="color:var(--gold);margin-left:.75rem">0 / 2</span>
+      </div>
+      <div id="captain-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.6rem;"></div>
+    </div>
+
+    <div class="flex gap-1">
+      <button class="btn btn-ghost" onclick="goToStep(1)">← Back</button>
+      <button class="btn btn-gold" onclick="goToStep3()" id="step2-next">Generate Teams →</button>
+    </div>
+    <span class="text-muted" id="step2-msg" style="margin-left:1rem"></span>
+  </div>
+
+  <!-- STEP 3: Review generated team options -->
+  <div id="step-3" style="display:none">
+    <div style="font-family:'Rajdhani',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem;">
+      Pick a team split — assign roles after selecting
+    </div>
+    <div id="draft-results" style="display:grid;gap:1rem;margin-bottom:1.5rem"></div>
+
+    <!-- Role assignment (shown after picking a split) -->
+    <div id="role-assign-section" style="display:none">
+      <div style="font-family:'Rajdhani',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem;margin-top:.5rem;">Assign Roles</div>
+      <div class="form-grid">
+        <div class="form-section">
+          <div class="form-section-title blue-title">🔵 Blue Team</div>
+          <div id="blue-role-slots"></div>
+        </div>
+        <div class="form-section">
+          <div class="form-section-title red-title">🔴 Red Team</div>
+          <div id="red-role-slots"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="flex gap-1" style="margin-top:1.5rem">
+      <button class="btn btn-ghost" onclick="goToStep(2)">← Back</button>
+      <button class="btn btn-gold" onclick="goToStep4()" id="step3-next" style="display:none">Next: Record Result →</button>
+    </div>
+    <span class="text-muted" id="step3-msg" style="margin-left:1rem"></span>
+  </div>
+
+  <!-- STEP 4: Record winner -->
+  <div id="step-4" style="display:none">
+    <div style="font-family:'Rajdhani',sans-serif;font-size:.9rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:1rem;">Which team won?</div>
+
+    <!-- Final team preview -->
+    <div class="form-grid mb-2" id="final-team-preview"></div>
+
+    <div class="flex gap-1 mb-2">
+      <button class="btn btn-ghost" id="win-blue" onclick="selectWinner('blue')" style="flex:1;color:var(--blue);max-width:200px">🔵 Blue Won</button>
+      <button class="btn btn-ghost" id="win-red"  onclick="selectWinner('red')"  style="flex:1;color:var(--red);max-width:200px">🔴 Red Won</button>
+    </div>
+
+    <div class="flex gap-1 items-center">
+      <button class="btn btn-ghost" onclick="goToStep(3)">← Back</button>
+      <button class="btn btn-gold" id="submit-match-btn" onclick="submitMatch()">⚔ Record Match</button>
+      <span class="text-muted" id="form-msg"></span>
+    </div>
+  </div>
+</div>
+
+<!-- MMR HISTORY -->
+<div id="page-history" class="page">
+  <div class="page-title">📈 MMR History</div>
+  <div class="page-sub">Last 20 games · hover a point for match details</div>
+
+  <!-- Filter toggles -->
+  <div id="history-legend" style="display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:1.5rem;"></div>
+
+  <!-- Canvas -->
+  <div class="card" style="padding:1.5rem;position:relative;">
+    <canvas id="mmr-chart" style="width:100%;"></canvas>
+    <div id="history-loading" style="text-align:center;padding:2rem;color:var(--muted)">
+      <span class="spinner"></span> Loading history…
+    </div>
+    <div id="history-empty" style="display:none;text-align:center;padding:2rem;color:var(--muted)">
+      No match history yet. Play some games first!
+    </div>
+  </div>
+
+  <!-- Tooltip -->
+  <div id="chart-tooltip" style="
+    position:fixed;pointer-events:none;opacity:0;transition:opacity .15s;
+    background:var(--card);border:1px solid var(--gold-dim);border-radius:6px;
+    padding:.6rem .9rem;font-size:.8rem;z-index:200;min-width:160px;
+    box-shadow:0 8px 24px rgba(0,0,0,.5);
+  "></div>
+</div>
+</div>
+<div id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────
+//  CONFIG
+// ─────────────────────────────────────────
+const API = ''; // same origin — Flask serves the frontend too
+
+const ROLES = ['Top','Jungle','Mid','Bot','Support'];
+const ROLE_ICONS = { Top:'⚔️', Jungle:'🌳', Mid:'🧙', Bot:'🏹', Support:'✨' };
+
+// computes display name with crown and/or fire streak badge
+function displayName(player, allPlayersList) {
+  const topMMR = Math.max(...allPlayersList.map(p => p.mmr));
+  const isTop  = player.mmr === topMMR && allPlayersList.length > 1;
+  const streak = player.win_streak || 0;
+
+  let crown = isTop
+    ? `<span class="crown-badge" title="Highest MMR">👑</span>`
+    : '';
+  let fire = streak >= 3
+    ? `<span class="streak-badge" title="${streak} win streak">🔥×${streak}</span>`
+    : '';
+
+  return `${crown}${player.name}${fire}`;
+}
+
+// ─────────────────────────────────────────
+//  API HELPERS
+// ─────────────────────────────────────────
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(API + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// Check server connectivity
+async function checkServer() {
+  try {
+    await apiFetch('/api/stats');
+    document.getElementById('server-dot').classList.add('online');
+  } catch {
+    document.getElementById('server-dot').classList.remove('online');
+  }
+}
+
+// ─────────────────────────────────────────
+//  NAVIGATION
+// ─────────────────────────────────────────
+function navigate(page) {
+  document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
+  const pages = ['leaderboard','players','matches','history','add-match'];
+  document.querySelectorAll('nav button').forEach((btn, i) => btn.classList.toggle('active', pages[i] === page));
+  document.getElementById('page-' + page).classList.add('active');
+  if (page === 'leaderboard') loadLeaderboard();
+  if (page === 'players')     loadPlayers();
+  if (page === 'matches')     loadMatches();
+  if (page === 'add-match')   loadAddMatchForm();
+  if (page === 'history')     loadHistory();
+}
+
+// ─────────────────────────────────────────
+//  LEADERBOARD
+// ─────────────────────────────────────────
+async function loadLeaderboard() {
+  const body    = document.getElementById('lb-body');
+  const empty   = document.getElementById('lb-empty');
+  const loading = document.getElementById('lb-loading');
+  loading.style.display = ''; empty.style.display = 'none'; body.innerHTML = '';
+
+  try {
+    const [players, stats] = await Promise.all([
+      apiFetch('/api/players'),
+      apiFetch('/api/stats'),
+    ]);
+
+    document.getElementById('stat-matches').textContent = stats.total_matches;
+    document.getElementById('stat-players').textContent = stats.total_players;
+    document.getElementById('stat-top').textContent = stats.top_player
+      ? `${stats.top_player.name} (${stats.top_player.mmr})`
+      : '—';
+
+    loading.style.display = 'none';
+    if (players.length === 0) { empty.style.display = ''; return; }
+
+    body.innerHTML = players.map((p, i) => {
+      const rank = i + 1;
+      const rankClass = rank <= 3 ? `rank-${rank}` : '';
+      const roleIcon = p.fav_role ? (ROLE_ICONS[p.fav_role] || '') : '—';
+      return `<tr>
+        <td><span class="rank-badge ${rankClass}">${rank}</span></td>
+        <td style="font-family:'Rajdhani',sans-serif;font-size:1rem;font-weight:600">${displayName(p, players)}</td>
+        <td><span class="mmr-badge">${p.mmr}</span></td>
+        <td><span class="mmr-tier ${p.tier.cls}">${p.tier.label}</span></td>
+        <td style="color:var(--green)">${p.wins}</td>
+        <td style="color:var(--red)">${p.losses}</td>
+        <td>
+          <span style="font-size:.85rem">${p.winrate}%</span>
+          <span class="wr-bar"><span class="wr-fill" style="width:${p.winrate}%"></span></span>
+          <span style="font-size:.7rem;color:var(--muted);margin-left:.3rem">(${p.games}G)</span>
+        </td>
+        <td style="font-size:1.1rem">${roleIcon} <span style="font-size:.8rem;color:var(--muted)">${p.fav_role || '—'}</span></td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    loading.innerHTML = `<span style="color:var(--red)">⚠ Could not load data: ${e.message}</span>`;
+  }
+}
+
+// ─────────────────────────────────────────
+//  PLAYERS
+// ─────────────────────────────────────────
+async function loadPlayers() {
+  const grid    = document.getElementById('player-grid');
+  const empty   = document.getElementById('players-empty');
+  const loading = document.getElementById('players-loading');
+  loading.style.display = ''; empty.style.display = 'none'; grid.innerHTML = '';
+
+  try {
+    const players = await apiFetch('/api/players');
+    loading.style.display = 'none';
+    if (players.length === 0) { empty.style.display = ''; return; }
+    const topMMR = Math.max(...players.map(x => x.mmr));
+    grid.innerHTML = players.map(p => {
+      const roleList = Object.entries(p.roles).sort((a,b)=>b[1]-a[1])
+      
+        .map(([r,c]) => `<span class="role-chip">${ROLE_ICONS[r]||''} ${r} <span style="color:var(--text)">${c}</span></span>`)
+        .join('');
+      return `<div class="player-card ${p.mmr === topMMR && players.length > 1 ? 'is-top-player' : ''}">
+        <div class="flex items-center gap-1 mb-1">
+          <div class="player-name">${displayName(p, players)}</div> 
+          <span class="mmr-tier ${p.tier.cls}" style="margin-left:auto">${p.tier.label}</span>
+        </div>
+        <div class="player-mmr-label">MMR</div>
+        <div class="player-mmr-val">${p.mmr}</div>
+        <div class="player-stats">
+          <div><span class="stat-val" style="color:var(--green)">${p.wins}W</span></div>
+          <div><span class="stat-val" style="color:var(--red)">${p.losses}L</span></div>
+          <div><span class="stat-val">${p.winrate}%</span> WR</div>
+          <div><span class="stat-val">${p.games}</span> G</div>
+        </div>
+        <div class="role-chips">${roleList || '<span style="color:var(--muted);font-size:.75rem">No games yet</span>'}</div>
+        <div style="margin-top:.9rem">
+          <button class="btn btn-red btn-sm" onclick="removePlayer(${p.id}, '${p.name}')">Remove</button>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    loading.innerHTML = `<span style="color:var(--red)">⚠ ${e.message}</span>`;
+  }
+}
+// ─────────────────────────────────────────
+//  MMR HISTORY CHART
+// ─────────────────────────────────────────
+
+const CHART_COLORS = [
+  '#4fc3f7','#c89b3c','#e53935','#43a047','#ce93d8',
+  '#ff8a65','#80cbc4','#fff176','#ef9a9a','#a5d6a7',
+  '#90caf9','#ffcc80','#f48fb1','#80deea','#bcaaa4','#eeeeee',
+];
+
+// Right padding is large enough to hold the longest name label
+const LABEL_PAD  = 130;  // px reserved on the right for inline labels
+const PAD = { top: 20, right: LABEL_PAD, bottom: 48, left: 68 };
+
+let chartData    = {};
+let chartCanvas  = null;
+let chartCtx     = null;
+let chartPoints  = [];   // for hover hit-testing
+let animFrame    = 0;
+let animProgress = 0;
+
+async function loadHistory() {
+  const loading = document.getElementById('history-loading');
+  const empty   = document.getElementById('history-empty');
+  loading.style.display = ''; empty.style.display = 'none';
+
+  try {
+    chartData = await apiFetch('/api/mmr-history');
+    loading.style.display = 'none';
+
+    const ids = Object.keys(chartData);
+    if (ids.length === 0 || ids.every(id => chartData[id].history.length === 0)) {
+      empty.style.display = ''; return;
+    }
+
+    initChart();
+  } catch(e) {
+    loading.innerHTML = `<span style="color:var(--red)">⚠ ${e.message}</span>`;
+  }
+}
+
+function initChart() {
+  chartCanvas = document.getElementById('mmr-chart');
+  chartCanvas.replaceWith(chartCanvas.cloneNode(true));
+  chartCanvas = document.getElementById('mmr-chart');
+  chartCtx    = chartCanvas.getContext('2d');
+
+  resizeChart();
+  chartCanvas.addEventListener('mousemove', onChartMouseMove);
+  chartCanvas.addEventListener('mouseleave', () => {
+    document.getElementById('chart-tooltip').style.opacity = '0';
+    drawChart(1);
+  });
+
+  window.removeEventListener('resize', onChartResize);
+  window.addEventListener('resize', onChartResize);
+
+  animProgress = 0;
+  cancelAnimationFrame(animFrame);
+  animateChart();
+}
+
+function onChartResize() { resizeChart(); drawChart(1); }
+
+function resizeChart() {
+  const rect = chartCanvas.parentElement.getBoundingClientRect();
+  const W    = Math.floor(rect.width);
+  // Taller canvas so 50 players have vertical room
+  const H    = Math.floor(Math.min(700, Math.max(400, W * 0.55)));
+  chartCanvas.width        = W;
+  chartCanvas.height       = H;
+  chartCanvas.style.width  = W + 'px';
+  chartCanvas.style.height = H + 'px';
+  chartCtx = chartCanvas.getContext('2d');
+}
+
+function getLayout() {
+  return {
+    W:      chartCanvas.width,
+    H:      chartCanvas.height,
+    innerW: chartCanvas.width  - PAD.left - PAD.right,
+    innerH: chartCanvas.height - PAD.top  - PAD.bottom,
+  };
+}
+
+function buildAxes() {
+  const ids = Object.keys(chartData);
+  const allMatchIds = [...new Set(
+    ids.flatMap(id => chartData[id].history.map(h => h.match_id))
+  )].sort((a, b) => a - b);
+
+  const allMMRs = ids.flatMap(id => chartData[id].history.map(h => h.mmr));
+  if (allMMRs.length === 0) return { allMatchIds, minMMR: 1000, maxMMR: 1500, mmrRange: 500 };
+
+  const rawMin  = Math.min(...allMMRs);
+  const rawMax  = Math.max(...allMMRs);
+  const pad     = Math.max(60, (rawMax - rawMin) * 0.12);
+  const minMMR  = Math.max(0, rawMin - pad);
+  const maxMMR  = rawMax + pad;
+  return { allMatchIds, minMMR, maxMMR, mmrRange: maxMMR - minMMR || 100 };
+}
+
+function xOf(matchId, allMatchIds) {
+  const { innerW } = getLayout();
+  const idx = allMatchIds.indexOf(matchId);
+  const n   = allMatchIds.length;
+  return PAD.left + (n <= 1 ? innerW / 2 : (idx / (n - 1)) * innerW);
+}
+
+function yOf(mmr, minMMR, mmrRange) {
+  const { innerH } = getLayout();
+  return PAD.top + (1 - (mmr - minMMR) / mmrRange) * innerH;
+}
+
+function animateChart() {
+  animProgress = Math.min(1, animProgress + 0.035);
+  drawChart(animProgress);
+  if (animProgress < 1) animFrame = requestAnimationFrame(animateChart);
+}
+
+// Nudge overlapping end-labels apart so they don't stack on top of each other
+function resolveEndLabels(endPoints) {
+  const MIN_GAP  = 14;  // px minimum gap between label centers
+  const PASSES   = 30;  // relaxation iterations
+  const pts      = endPoints.map(p => ({ ...p }));
+
+  for (let pass = 0; pass < PASSES; pass++) {
+    pts.sort((a, b) => a.labelY - b.labelY);
+    for (let i = 1; i < pts.length; i++) {
+      const overlap = (pts[i-1].labelY + MIN_GAP) - pts[i].labelY;
+      if (overlap > 0) {
+        pts[i-1].labelY -= overlap / 2;
+        pts[i].labelY   += overlap / 2;
+      }
+    }
+  }
+  return pts;
+}
+
+function drawChart(progress, hoverMatchId) {
+  const { W, H, innerW, innerH } = getLayout();
+  const ctx = chartCtx;
+  ctx.clearRect(0, 0, W, H);
+
+  const ids = Object.keys(chartData);
+  if (ids.length === 0) return;
+
+  const { allMatchIds, minMMR, mmrRange } = buildAxes();
+  if (allMatchIds.length === 0) return;
+
+  // ── Y grid + labels ──
+  ctx.font         = '12px "Exo 2", sans-serif';
+  ctx.textAlign    = 'right';
+  ctx.textBaseline = 'middle';
+  const yTicks     = 6;
+  for (let i = 0; i <= yTicks; i++) {
+    const mmr = minMMR + (mmrRange / yTicks) * i;
+    const y   = yOf(mmr, minMMR, mmrRange);
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(30,34,50,.9)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 5]);
+    ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(90,96,122,.85)';
+    ctx.fillText(Math.round(mmr), PAD.left - 10, y);
+  }
+
+  // ── X labels ──
+  ctx.textBaseline = 'top';
+  ctx.textAlign    = 'center';
+  ctx.font         = '11px "Exo 2", sans-serif';
+  ctx.fillStyle    = 'rgba(90,96,122,.85)';
+  const labelEvery = allMatchIds.length > 15 ? 2 : 1;
+  allMatchIds.forEach((mid, i) => {
+    if (i % labelEvery !== 0 && i !== allMatchIds.length - 1) return;
+    ctx.fillText(`G${i + 1}`, xOf(mid, allMatchIds), H - PAD.bottom + 8);
+  });
+
+  // ── Axes ──
+  ctx.beginPath();
+  ctx.strokeStyle  = 'rgba(30,34,50,1)';
+  ctx.lineWidth    = 1.5;
+  ctx.setLineDash([]);
+  ctx.moveTo(PAD.left, PAD.top);
+  ctx.lineTo(PAD.left, H - PAD.bottom);
+  ctx.lineTo(W - PAD.right, H - PAD.bottom);
+  ctx.stroke();
+
+  // ── Hover line ──
+  if (hoverMatchId !== undefined) {
+    const hx = xOf(hoverMatchId, allMatchIds);
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(200,155,60,.4)';
+    ctx.lineWidth   = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.moveTo(hx, PAD.top);
+    ctx.lineTo(hx, H - PAD.bottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // ── Draw lines, fills, dots — collect end points for labels ──
+  chartPoints = [];
+  const endPoints = [];  // {x, y, labelY, name, color, mmr}
+
+  ids.forEach((id, colorIdx) => {
+    const color   = CHART_COLORS[colorIdx % CHART_COLORS.length];
+    const history = chartData[id].history;
+    if (history.length === 0) return;
+
+    const visibleCount = Math.max(1, Math.ceil(history.length * progress));
+    const visible      = history.slice(0, visibleCount);
+    const pts          = visible.map(pt => ({
+      x: xOf(pt.match_id, allMatchIds),
+      y: yOf(pt.mmr, minMMR, mmrRange),
+      pt,
+    }));
+
+    // Gradient fill under line
+    if (pts.length > 1) {
+      const grad = ctx.createLinearGradient(0, PAD.top, 0, H - PAD.bottom);
+      grad.addColorStop(0, hexToRgba(color, 0.12));
+      grad.addColorStop(1, hexToRgba(color, 0.0));
+      ctx.beginPath();
+      ctx.fillStyle = grad;
+      pts.forEach(({ x, y }, i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+      ctx.lineTo(pts[pts.length-1].x, H - PAD.bottom);
+      ctx.lineTo(pts[0].x, H - PAD.bottom);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Line
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = 2;
+    ctx.lineJoin    = 'round';
+    ctx.lineCap     = 'round';
+    ctx.setLineDash([]);
+    pts.forEach(({ x, y }, i) => i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y));
+    ctx.stroke();
+
+    // Dots — only draw if not too many points (avoids clutter)
+    const drawDots = history.length <= 20;
+    pts.forEach(({ x, y, pt }) => {
+      if (drawDots) {
+        ctx.beginPath();
+        ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle   = color;
+        ctx.fill();
+        ctx.strokeStyle = pt.won ? '#43a047' : '#e53935';
+        ctx.lineWidth   = 1.5;
+        ctx.stroke();
+      }
+      chartPoints.push({ x, y, id, name: chartData[id].name, pt, color });
+    });
+
+    // Collect end point for inline label (only when fully drawn)
+    if (progress >= 1 && pts.length > 0) {
+      const last = pts[pts.length - 1];
+      endPoints.push({
+        x:      last.x,
+        y:      last.y,
+        labelY: last.y,   // will be nudged by resolveEndLabels
+        name:   chartData[id].name,
+        color,
+        mmr:    visible[visible.length - 1].mmr,
+      });
+    }
+  });
+
+  // ── Inline end labels (after lines so they render on top) ──
+  if (endPoints.length > 0) {
+    const resolved = resolveEndLabels(endPoints);
+
+    resolved.forEach(ep => {
+      const lx = W - PAD.right + 10;   // just right of the chart area
+      const ly = ep.labelY;
+
+      // Connector line from dot to label if nudged far
+      const drift = Math.abs(ep.labelY - ep.y);
+      if (drift > 4) {
+        ctx.beginPath();
+        ctx.strokeStyle = hexToRgba(ep.color, 0.35);
+        ctx.lineWidth   = 1;
+        ctx.setLineDash([2, 3]);
+        ctx.moveTo(ep.x + 6, ep.y);
+        ctx.lineTo(lx - 2, ly);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Label text — name
+      ctx.font         = 'bold 11px "Exo 2", sans-serif';
+      ctx.fillStyle    = ep.color;
+      ctx.textAlign    = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(ep.name, lx, ly - 6);
+
+      // MMR value below name
+      ctx.font      = '10px "Exo 2", sans-serif';
+      ctx.fillStyle = hexToRgba(ep.color, 0.7);
+      ctx.fillText(ep.mmr, lx, ly + 6);
+    });
+  }
+}
+
+function onChartMouseMove(e) {
+  const rect   = chartCanvas.getBoundingClientRect();
+  const mouseX = e.clientX - rect.left;
+  const mouseY = e.clientY - rect.top;
+  const tooltip = document.getElementById('chart-tooltip');
+  const { allMatchIds } = buildAxes();
+  const { innerW }      = getLayout();
+
+  if (mouseX < PAD.left || mouseX > chartCanvas.width - PAD.right ||
+      mouseY < PAD.top  || mouseY > chartCanvas.height - PAD.bottom) {
+    tooltip.style.opacity = '0';
+    drawChart(1);
+    return;
+  }
+
+  // Snap to nearest game column
+  let snapMatchId = allMatchIds[0], snapDist = Infinity;
+  allMatchIds.forEach(mid => {
+    const d = Math.abs(xOf(mid, allMatchIds) - mouseX);
+    if (d < snapDist) { snapDist = d; snapMatchId = mid; }
+  });
+
+  drawChart(1, snapMatchId);
+
+  const gameNum   = allMatchIds.indexOf(snapMatchId) + 1;
+  const colPoints = chartPoints
+    .filter(cp => cp.pt.match_id === snapMatchId)
+    .sort((a, b) => b.pt.mmr - a.pt.mmr);  // highest MMR on top of tooltip
+
+  if (colPoints.length === 0) { tooltip.style.opacity = '0'; return; }
+
+  const date = new Date(colPoints[0].pt.played_at).toLocaleString('en-US', {
+    month:'short', day:'numeric', hour:'numeric', minute:'2-digit'
+  });
+
+  const rows = colPoints.map(cp => {
+    const sign   = cp.pt.delta >= 0 ? '+' : '';
+    const dColor = cp.pt.delta >= 0 ? '#43a047' : '#e53935';
+    return `<div style="display:flex;align-items:center;gap:.5rem;padding:.2rem 0;
+        border-bottom:1px solid rgba(30,34,50,.6);">
+      <span style="width:8px;height:8px;border-radius:50%;flex-shrink:0;
+        background:${cp.color};box-shadow:0 0 4px ${cp.color}"></span>
+      <span style="font-family:'Rajdhani',sans-serif;font-weight:700;
+        color:${cp.color};flex:1;font-size:.85rem;">${cp.name}</span>
+      <span style="font-weight:700;color:${cp.color};font-size:.85rem;min-width:36px;">${cp.pt.mmr}</span>
+      <span style="color:${dColor};font-weight:700;font-size:.8rem;min-width:34px;text-align:right;">${sign}${cp.pt.delta}</span>
+      <span style="font-size:.75rem;color:${cp.pt.won?'#43a047':'#e53935'}">${cp.pt.won?'✔':'✘'}</span>
+    </div>`;
+  }).join('');
+
+  tooltip.innerHTML = `
+    <div style="font-family:'Rajdhani',sans-serif;font-size:.7rem;letter-spacing:.08em;
+      text-transform:uppercase;color:var(--muted);margin-bottom:.4rem;">
+      Game ${gameNum} · ${date}
+    </div>
+    ${rows}
+  `;
+
+  const tw = 250;
+  tooltip.style.left    = (e.clientX + 16 + tw > window.innerWidth ? e.clientX - tw - 16 : e.clientX + 16) + 'px';
+  tooltip.style.top     = Math.min(e.clientY - 10, window.innerHeight - 300) + 'px';
+  tooltip.style.opacity = '1';
+}
+
+function hexToRgba(hex, alpha) {
+  const r = parseInt(hex.slice(1,3), 16);
+  const g = parseInt(hex.slice(3,5), 16);
+  const b = parseInt(hex.slice(5,7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
+async function addPlayer() {
+  const input    = document.getElementById('new-player-name');
+  const mmrInput = document.getElementById('new-player-mmr');
+  const btn      = document.getElementById('add-player-btn');
+  const name     = input.value.trim();
+  if (!name) return;
+
+  const mmrRaw = mmrInput.value.trim();
+  const body = { name };
+  if (mmrRaw !== '') {
+    const mmrVal = parseInt(mmrRaw, 10);
+    if (isNaN(mmrVal) || mmrVal < 100 || mmrVal > 9999) {
+      toast('⚠ MMR must be a number between 100 and 9999', true);
+      return;
+    }
+    body.mmr = mmrVal;
+  }
+
+  btn.disabled = true;
+  try {
+    await apiFetch('/api/players', { method: 'POST', body: JSON.stringify(body) });
+    input.value = '';
+    mmrInput.value = '';
+    toast(`✅ ${name} added${body.mmr ? ` at ${body.mmr} MMR` : ''}!`);
+    loadPlayers();
+  } catch(e) {
+    toast(`⚠ ${e.message}`, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function removePlayer(id, name) {
+  if (!confirm(`Remove ${name}? This cannot be undone.`)) return;
+  try {
+    await apiFetch(`/api/players/${id}`, { method: 'DELETE' });
+    toast(`${name} removed.`);
+    loadPlayers();
+  } catch(e) {
+    toast(`⚠ ${e.message}`, true);
+  }
+}
+
+// ─────────────────────────────────────────
+//  MATCHES
+// ─────────────────────────────────────────
+async function loadMatches() {
+  const list    = document.getElementById('match-list');
+  const empty   = document.getElementById('matches-empty');
+  const loading = document.getElementById('matches-loading');
+  loading.style.display = ''; empty.style.display = 'none'; list.innerHTML = '';
+
+  try {
+    const matches = await apiFetch('/api/matches');
+    loading.style.display = 'none';
+    if (matches.length === 0) { empty.style.display = ''; return; }
+
+    list.innerHTML = matches.map((m, idx) => {
+      const blueWon = m.winner === 'blue';
+      const bLabel  = blueWon ? '<span class="badge-win">WIN</span>' : '<span class="badge-loss">LOSS</span>';
+      const rLabel  = !blueWon ? '<span class="badge-win">WIN</span>' : '<span class="badge-loss">LOSS</span>';
+      const bSlots  = m.blue.map(s => `<span class="slot-tag">${ROLE_ICONS[s.role]||''} ${s.player} <span class="slot-role">${s.role}</span></span>`).join('');
+      const rSlots  = m.red.map(s  => `<span class="slot-tag">${ROLE_ICONS[s.role]||''} ${s.player} <span class="slot-role">${s.role}</span></span>`).join('');
+      const changes = m.mmr_changes.map(c =>
+        `<span style="color:${c.delta>0?'var(--green)':'var(--red)'}">${c.player} ${c.delta>0?'+':''}${c.delta}</span>`
+      ).join(' · ');
+      const dateStr = new Date(m.played_at).toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
+
+      return `<div class="match-card" id="mc-${idx}">
+        <div class="match-header" onclick="toggleMatch(${idx})">
+          <span style="font-family:'Rajdhani',sans-serif;font-weight:700;color:var(--muted);font-size:.85rem">Game #${m.id}</span>
+          <span style="font-size:.8rem;color:var(--muted);letter-spacing:.05em;min-width:160px">${dateStr}</span>
+          <span class="team-label team-blue-label">Blue</span>${bLabel}
+          <span style="color:var(--muted);font-size:.85rem">vs</span>
+          <span class="team-label team-red-label">Red</span>${rLabel}
+          <span style="font-size:.75rem;color:var(--muted);margin-left:.5rem">±${m.mmr_delta} MMR</span>
+          <button class="btn btn-red btn-sm" style="margin-left:.5rem" onclick="event.stopPropagation();deleteMatch(${m.id})">Revert</button>
+          <span class="match-chevron">▼</span>
+        </div>
+        <div class="match-body">
+          <div class="team-row"><span class="team-label team-blue-label">Blue</span>${bSlots}</div>
+          <div class="team-row"><span class="team-label team-red-label">Red</span>${rSlots}</div>
+          <div style="margin-top:.8rem;font-size:.75rem;color:var(--muted)">MMR changes: ${changes}</div>
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) {
+    loading.innerHTML = `<span style="color:var(--red)">⚠ ${e.message}</span>`;
+  }
+}
+
+function toggleMatch(idx) {
+  document.getElementById('mc-' + idx).classList.toggle('open');
+}
+
+async function deleteMatch(id) {
+  if (!confirm('Revert this match? All MMR changes will be undone.')) return;
+  try {
+    await apiFetch(`/api/matches/${id}`, { method: 'DELETE' });
+    toast('Match reverted. MMR restored.');
+    loadMatches();
+  } catch(e) {
+    toast(`⚠ ${e.message}`, true);
+  }
+}
+
+// ─────────────────────────────────────────
+//  ADD MATCH — MULTI-STEP DRAFT
+// ─────────────────────────────────────────
+let allPlayers = [];       // all players from DB
+let selectedPool = [];     // 10 chosen players (objects)
+let selectedDraftMethod = null;
+let selectedCaptains = []; // 2 chosen captain objects (captains mode only)
+let draftResults = [];     // array of {blue:[],red:[]} splits
+let chosenSplit = null;    // {blue:[],red:[]}
+let finalBlueRoles = [];   // [{player_id, role}, ...]
+let finalRedRoles  = [];
+let selectedWinner = null;
+
+const DRAFT_METHODS = [
+  {
+    id: 'balanced',
+    title: '⚖ Mathematically Balanced',
+    desc: 'Splits the pool to minimise total MMR difference between teams. Produces the fairest possible match.',
+    fn: draftBalanced,
+  },
+  {
+    id: 'snake',
+    title: '🐍 Snake Draft',
+    desc: 'Players are ranked by MMR. Teams alternate picks in a snake pattern (1→2→2→1→…). Classic fantasy-style draft.',
+    fn: draftSnake,
+  },
+  {
+    id: 'random',
+    title: '🎲 Random',
+    desc: 'Players are split completely at random. Pure chaos — may the luckier team win.',
+    fn: draftRandom,
+  },
+  {
+    id: 'captains',
+    title: '👑 Captains (Top 2 vs Rest)',
+    desc: 'The two highest-MMR players are placed on opposite teams. Remaining 8 are balanced around them.',
+    fn: draftCaptains,
+  },
+];
+
+// ── Step navigation ──
+function goToStep(n) {
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById(`step-${i}`).style.display = i === n ? '' : 'none';
+    const ind = document.getElementById(`step-ind-${i}`);
+    ind.classList.toggle('active', i === n);
+    ind.classList.toggle('done', i < n);
+  }
+}
+
+async function loadAddMatchForm() {
+  selectedPool = [];
+  selectedDraftMethod = null;
+  selectedCaptains = [];
+  draftResults = [];
+  chosenSplit = null;
+  finalBlueRoles = [];
+  finalRedRoles  = [];
+  selectedWinner = null;
+  document.getElementById('step1-msg').textContent = '';
+  goToStep(1);
+  await loadPoolGrid();
+}
+
+// ── Step 1: player pool ──
+async function loadPoolGrid() {
+  const grid    = document.getElementById('pool-grid');
+  const loading = document.getElementById('pool-loading');
+  const empty   = document.getElementById('pool-empty');
+  loading.style.display = ''; grid.innerHTML = ''; empty.style.display = 'none';
+
+  try {
+    allPlayers = await apiFetch('/api/players');
+    loading.style.display = 'none';
+    if (allPlayers.length === 0) { empty.style.display = ''; return; }
+
+    grid.innerHTML = allPlayers.map(p => `
+      <div class="pool-player-card ${p.mmr === Math.max(...allPlayers.map(x=>x.mmr)) ? 'is-top-player' : ''}" id="pool-${p.id}" onclick="togglePool(${p.id})">
+        <div>
+          <div class="pool-pname">${displayName(p, allPlayers)}</div>
+          <div class="pool-pmmr"><span class="mmr-tier ${p.tier.cls}" style="font-size:.65rem">${p.tier.label}</span> ${p.mmr} MMR</div>
+        </div>
+        <span class="pool-check">✔</span>
+      </div>
+    `).join('');
+  } catch(e) {
+    loading.innerHTML = `<span style="color:var(--red)">⚠ ${e.message}</span>`;
+  }
+}
+
+function togglePool(id) {
+  const p = allPlayers.find(x => x.id === id);
+  const card = document.getElementById(`pool-${id}`);
+  const idx = selectedPool.findIndex(x => x.id === id);
+  if (idx === -1) {
+    if (selectedPool.length >= 10) { toast('⚠ Already have 10 players selected', true); return; }
+    selectedPool.push(p);
+    card.classList.add('selected');
+  } else {
+    selectedPool.splice(idx, 1);
+    card.classList.remove('selected');
+  }
+  document.getElementById('pool-count-label').textContent = `${selectedPool.length} / 10`;
+}
+
+function filterPoolGrid() {
+  const query = document.getElementById('pool-search').value.toLowerCase().trim();
+  allPlayers.forEach(p => {
+    const card = document.getElementById(`pool-${p.id}`);
+    if (!card) return;
+    card.style.display = p.name.toLowerCase().includes(query) ? '' : 'none';
+  });
+}
+function goToStep2() {
+  if (selectedPool.length !== 10) {
+    document.getElementById('step1-msg').textContent = `⚠ Select exactly 10 players (${selectedPool.length} selected).`;
+    return;
+  }
+  document.getElementById('step1-msg').textContent = '';
+
+  // Render draft method cards
+  document.getElementById('draft-methods').innerHTML = DRAFT_METHODS.map(m => `
+    <div class="draft-card" id="dm-${m.id}" onclick="selectDraftMethod('${m.id}')">
+      <div class="draft-card-title">${m.title}</div>
+      <div class="draft-card-desc">${m.desc}</div>
+    </div>
+  `).join('');
+  selectedDraftMethod = null;
+
+  goToStep(2);
+}
+
+// ── Step 2: draft method ──
+function selectDraftMethod(id) {
+  selectedDraftMethod = id;
+  document.querySelectorAll('.draft-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById(`dm-${id}`).classList.add('selected');
+  document.getElementById('step2-msg').textContent = '';
+
+  // Show captain picker only for captains mode
+  const picker = document.getElementById('captain-picker');
+  if (id === 'captains') {
+    selectedCaptains = [];
+    picker.style.display = '';
+    document.getElementById('captain-grid').innerHTML = selectedPool.map(p => `
+      <div class="pool-player-card" id="cap-${p.id}" onclick="toggleCaptain(${p.id})">
+        <div>
+          <div class="pool-pname">${p.name}</div>
+          <div class="pool-pmmr"><span class="mmr-tier ${p.tier.cls}" style="font-size:.65rem">${p.tier.label}</span> ${p.mmr} MMR</div>
+        </div>
+        <span class="pool-check">👑</span>
+      </div>
+    `).join('');
+    document.getElementById('cap-count-label').textContent = '0 / 2';
+  } else {
+    picker.style.display = 'none';
+    selectedCaptains = [];
+  }
+}
+
+function toggleCaptain(id) {
+  const p = selectedPool.find(x => x.id === id);
+  const card = document.getElementById(`cap-${id}`);
+  const idx = selectedCaptains.findIndex(x => x.id === id);
+  if (idx === -1) {
+    if (selectedCaptains.length >= 2) { toast('⚠ Only 2 captains allowed', true); return; }
+    selectedCaptains.push(p);
+    card.classList.add('selected');
+  } else {
+    selectedCaptains.splice(idx, 1);
+    card.classList.remove('selected');
+  }
+  document.getElementById('cap-count-label').textContent = `${selectedCaptains.length} / 2`;
+}
+
+function goToStep3() {
+  if (!selectedDraftMethod) {
+    document.getElementById('step2-msg').textContent = '⚠ Pick a draft method first.';
+    return;
+  }
+  if (selectedDraftMethod === 'captains' && selectedCaptains.length !== 2) {
+    document.getElementById('step2-msg').textContent = '⚠ Select exactly 2 captains.';
+    return;
+  }
+  const method = DRAFT_METHODS.find(m => m.id === selectedDraftMethod);
+  draftResults = method.fn(selectedPool);
+  chosenSplit = null;
+  document.getElementById('role-assign-section').style.display = 'none';
+  document.getElementById('step3-next').style.display = 'none';
+  document.getElementById('step3-msg').textContent = '';
+  renderDraftResults();
+  goToStep(3);
+}
+
+// ── Draft algorithms ──
+function avgMMR(team) { return team.reduce((s,p)=>s+p.mmr,0)/team.length; }
+function mmrDiff(t1,t2) { return Math.abs(Math.round(avgMMR(t1) - avgMMR(t2))); }
+
+function draftBalanced(pool) {
+  // Brute-force best split for 10 players (C(10,5)=252 combos — trivial)
+  const sorted = [...pool].sort((a,b)=>b.mmr-a.mmr);
+  let best = null, bestDiff = Infinity;
+  const combos = getCombinations(sorted, 5);
+  for (const blue of combos) {
+    const blueIds = new Set(blue.map(p=>p.id));
+    const red = sorted.filter(p=>!blueIds.has(p.id));
+    const diff = mmrDiff(blue, red);
+    if (diff < bestDiff) { bestDiff = diff; best = {blue, red}; }
+  }
+  // Return top 3 best splits
+  const top = [];
+  const seen = new Set();
+  for (const blue of combos) {
+    const blueIds = new Set(blue.map(p=>p.id));
+    const red = sorted.filter(p=>!blueIds.has(p.id));
+    const key = [...blue].sort((a,b)=>a.id-b.id).map(p=>p.id).join(',');
+    if (seen.has(key)) continue; seen.add(key);
+    top.push({blue, red, diff: mmrDiff(blue,red)});
+  }
+  top.sort((a,b)=>a.diff-b.diff);
+  return top.slice(0,3);
+}
+
+function getCombinations(arr, k) {
+  const result = [];
+  function recurse(start, current) {
+    if (current.length === k) { result.push([...current]); return; }
+    for (let i = start; i <= arr.length - (k - current.length); i++) {
+      current.push(arr[i]);
+      recurse(i+1, current);
+      current.pop();
+    }
+  }
+  recurse(0, []);
+  return result;
+}
+
+function draftSnake(pool) {
+  const sorted = [...pool].sort((a,b)=>b.mmr-a.mmr);
+  // Snake: picks go 1,2,2,1,1,2,2,1,1,2 (team indices)
+  const pattern = [0,1,1,0,0,1,1,0,0,1];
+  const teams = [[],[]];
+  sorted.forEach((p,i) => teams[pattern[i]].push(p));
+  const [blue, red] = teams;
+  // Also generate reversed snake as second option
+  const rev = [1,0,0,1,1,0,0,1,1,0];
+  const t2 = [[],[]];
+  sorted.forEach((p,i) => t2[rev[i]].push(p));
+  return [
+    {blue, red, diff: mmrDiff(blue,red), label:'Snake Draft'},
+    {blue:t2[0], red:t2[1], diff: mmrDiff(t2[0],t2[1]), label:'Reverse Snake'},
+  ];
+}
+
+function draftRandom(pool) {
+  const results = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const shuffled = [...pool].sort(()=>Math.random()-.5);
+    const blue = shuffled.slice(0,5), red = shuffled.slice(5);
+    results.push({blue, red, diff: mmrDiff(blue,red), label:`Random #${attempt+1}`});
+  }
+  return results;
+}
+
+function draftCaptains(pool) {
+  const cap1 = selectedCaptains[0], cap2 = selectedCaptains[1];
+  const rest = pool.filter(p => p.id !== cap1.id && p.id !== cap2.id)
+                   .sort((a,b) => b.mmr - a.mmr);
+  // Snake the remaining 8 around the two captains to balance teams
+  const pattern = [1,0,0,1,0,1,1,0]; // which team each of the 8 remaining players goes to
+  const blue = [cap1], red = [cap2];
+  rest.forEach((p,i) => { if (pattern[i]===0) blue.push(p); else red.push(p); });
+
+  // Second option: swap which captain leads which side
+  const blue2 = [cap2], red2 = [cap1];
+  rest.forEach((p,i) => { if (pattern[i]===0) blue2.push(p); else red2.push(p); });
+
+  return [
+    { blue, red, diff: mmrDiff(blue, red), label: `${cap1.name} leads Blue` },
+    { blue: blue2, red: red2, diff: mmrDiff(blue2, red2), label: `${cap2.name} leads Blue` },
+  ];
+}
+
+// ── Step 3: render splits + role assignment ──
+function renderDraftResults() {
+  const container = document.getElementById('draft-results');
+  container.innerHTML = draftResults.map((split, idx) => {
+    const label = split.label || `Option ${idx+1}`;
+    const blueAvg = Math.round(avgMMR(split.blue));
+    const redAvg  = Math.round(avgMMR(split.red));
+    const renderTeam = (team, color) => team
+      .sort((a,b)=>b.mmr-a.mmr)
+      .map(p=>`<div style="font-size:.82rem;padding:.15rem 0;display:flex;justify-content:space-between">
+        <span style="font-family:'Rajdhani',sans-serif;font-weight:600">${p.name}</span>
+        <span style="color:var(--muted);font-size:.75rem">${p.mmr}</span>
+      </div>`).join('');
+
+    return `<div class="split-card" id="split-${idx}" onclick="chooseSplit(${idx})">
+      <div class="split-label">${label} — Avg MMR diff: <span style="color:var(--gold)">${split.diff}</span></div>
+      <div class="split-teams">
+        <div>
+          <div class="split-team-title" style="color:var(--blue)">🔵 Blue · avg ${blueAvg}</div>
+          ${renderTeam(split.blue,'blue')}
+        </div>
+        <div>
+          <div class="split-team-title" style="color:var(--red)">🔴 Red · avg ${redAvg}</div>
+          ${renderTeam(split.red,'red')}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function chooseSplit(idx) {
+  document.querySelectorAll('.split-card').forEach(c=>c.classList.remove('selected'));
+  document.getElementById(`split-${idx}`).classList.add('selected');
+  chosenSplit = draftResults[idx];
+  buildRoleSlots();
+  document.getElementById('role-assign-section').style.display = '';
+  document.getElementById('step3-next').style.display = '';
+  document.getElementById('step3-msg').textContent = '';
+}
+
+function buildRoleSlots() {
+  ['blue','red'].forEach(team => {
+    const players = chosenSplit[team];
+    const opts = players.map(p=>`<option value="${p.id}">${p.name} (${p.mmr})</option>`).join('');
+    document.getElementById(`${team}-role-slots`).innerHTML = ROLES.map(role=>`
+      <div class="slot-row">
+        <span class="slot-label">${ROLE_ICONS[role]} ${role}</span>
+        <select id="rs-${team}-${role.toLowerCase()}">${'<option value="">— pick —</option>'}${opts}</select>
+      </div>
+    `).join('');
+  });
+}
+
+function goToStep4() {
+  // Validate role assignments
+  finalBlueRoles = []; finalRedRoles = [];
+  const usedIds = new Set();
+  for (const role of ROLES) {
+    const bId = document.getElementById(`rs-blue-${role.toLowerCase()}`).value;
+    const rId = document.getElementById(`rs-red-${role.toLowerCase()}`).value;
+    if (!bId || !rId) { document.getElementById('step3-msg').textContent = '⚠ Assign every role for both teams.'; return; }
+    if (usedIds.has(bId)||usedIds.has(rId)) { document.getElementById('step3-msg').textContent = '⚠ Each player can only fill one role.'; return; }
+    usedIds.add(bId); usedIds.add(rId);
+    finalBlueRoles.push({player_id:parseInt(bId), role});
+    finalRedRoles.push({player_id:parseInt(rId), role});
+  }
+  document.getElementById('step3-msg').textContent = '';
+
+  // Render final team preview on step 4
+  const renderPreview = (slots, team) => {
+    const color = team==='blue' ? 'var(--blue)' : 'var(--red)';
+    const label = team==='blue' ? '🔵 Blue Team' : '🔴 Red Team';
+    const rows = slots.map(s=>{
+      const p = allPlayers.find(x=>x.id===s.player_id);
+      return `<div style="display:flex;align-items:center;gap:.5rem;padding:.3rem 0;border-bottom:1px solid var(--border)">
+        <span style="font-size:.95rem">${ROLE_ICONS[s.role]}</span>
+        <span style="font-family:'Rajdhani',sans-serif;font-weight:600;font-size:.9rem">${p?.name||''}</span>
+        <span style="color:var(--muted);font-size:.75rem;margin-left:auto">${s.role} · ${p?.mmr} MMR</span>
+      </div>`;
+    }).join('');
+    return `<div class="form-section">
+      <div class="form-section-title" style="color:${color}">${label}</div>
+      ${rows}
+    </div>`;
+  };
+  document.getElementById('final-team-preview').innerHTML =
+    renderPreview(finalBlueRoles,'blue') + renderPreview(finalRedRoles,'red');
+
+  selectedWinner = null;
+  document.getElementById('win-blue').style.borderColor = '';
+  document.getElementById('win-blue').style.background  = '';
+  document.getElementById('win-red').style.borderColor  = '';
+  document.getElementById('win-red').style.background   = '';
+  document.getElementById('form-msg').textContent = '';
+  goToStep(4);
+}
+
+// ── Step 4: winner + submit ──
+function selectWinner(team) {
+  selectedWinner = team;
+  document.getElementById('win-blue').style.borderColor = team==='blue' ? 'var(--blue)' : '';
+  document.getElementById('win-blue').style.background  = team==='blue' ? 'rgba(79,195,247,.1)' : '';
+  document.getElementById('win-red').style.borderColor  = team==='red'  ? 'var(--red)'  : '';
+  document.getElementById('win-red').style.background   = team==='red'  ? 'rgba(229,57,53,.1)'  : '';
+}
+
+async function submitMatch() {
+  const msg = document.getElementById('form-msg');
+  const btn = document.getElementById('submit-match-btn');
+  if (!selectedWinner) { msg.textContent = '⚠ Select a winner first.'; return; }
+
+  btn.disabled = true;
+  msg.innerHTML = '<span class="spinner"></span> Recording…';
+  try {
+    const result = await apiFetch('/api/matches', {
+      method:'POST',
+      body: JSON.stringify({ winner: selectedWinner, blue: finalBlueRoles, red: finalRedRoles }),
+    });
+    toast(`✅ Match #${result.match_id} recorded! ±${result.mmr_delta} MMR`);
+    navigate('matches');
+  } catch(e) {
+    msg.textContent = '⚠ ' + e.message;
+    toast('⚠ ' + e.message, true);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ─────────────────────────────────────────
+//  TOAST
+// ─────────────────────────────────────────
+let toastTimer;
+function toast(msg, isError = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.toggle('error', isError);
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
+}
+
+// ─────────────────────────────────────────
+//  INIT
+// ─────────────────────────────────────────
+checkServer();
+setInterval(checkServer, 15000); // poll server status every 15s
+loadLeaderboard();
+</script>
+</body>
+</html>
