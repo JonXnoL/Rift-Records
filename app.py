@@ -271,9 +271,10 @@ def get_matches():
         result = []
         for m in matches:
             slots = db.execute("""
-                SELECT ms.team, ms.role, p.name, p.id as player_id
+                SELECT ms.team, ms.role, ms.player_id,
+                       COALESCE(p.name, '[deleted]') as name
                 FROM match_slots ms
-                JOIN players p ON p.id = ms.player_id
+                LEFT JOIN players p ON p.id = ms.player_id
                 WHERE ms.match_id = ?
             """, (m["id"],)).fetchall()
 
@@ -428,28 +429,20 @@ def delete_match(match_id):
 # ─────────────────────────────────────────────
 @app.route("/api/mmr-history", methods=["GET"])
 def get_mmr_history():
-    """
-    Returns each player's MMR at the end of each of their last 20 matches,
-    reconstructed by walking match history in chronological order.
-    """
     with get_db() as db:
         players = db.execute("SELECT id, name, mmr FROM players ORDER BY mmr DESC").fetchall()
 
-        # Fetch last 20 matches in chronological order
         matches = db.execute("""
             SELECT id, winner, mmr_delta, played_at FROM matches
             ORDER BY id DESC LIMIT 20
         """).fetchall()
-        matches = list(reversed(matches))  # oldest first for left-to-right chart
+        matches = list(reversed(matches))
 
-        # For each player, reconstruct their MMR at each match point
-        # We do this by starting from current MMR and walking backwards,
-        # then reversing to get chronological order.
         result = {}
         for p in players:
-            player_id = p["id"]
+            player_id   = p["id"]
             current_mmr = p["mmr"]
-            history = []  # will build backwards then reverse
+            history     = []
 
             for m in reversed(matches):
                 slot = db.execute("""
@@ -458,17 +451,12 @@ def get_mmr_history():
                 """, (m["id"], player_id)).fetchone()
 
                 if slot is None:
-                    continue  # player not in this match
+                    continue
 
-                # Determine if they won
-                won = slot["team"] == m["winner"]
-                delta = m["mmr_delta"]
-
-                # current_mmr is their MMR AFTER this match
-                # so their MMR before was current_mmr ∓ delta
+                won        = slot["team"] == m["winner"]
+                delta      = m["mmr_delta"]
                 mmr_after  = current_mmr
-                mmr_before = current_mmr - (delta if won else -delta)
-                mmr_before = max(100, mmr_before)
+                mmr_before = max(100, current_mmr - (delta if won else -delta))
 
                 history.append({
                     "match_id":  m["id"],
@@ -478,10 +466,11 @@ def get_mmr_history():
                     "delta":     delta if won else -delta,
                 })
 
-                current_mmr = mmr_before  # step back further
+                current_mmr = mmr_before
 
-            history.reverse()  # now chronological
+            history.reverse()
 
+            # Only include players who have at least one match in the window
             if history:
                 result[str(player_id)] = {
                     "name":    p["name"],
@@ -489,6 +478,7 @@ def get_mmr_history():
                 }
 
         return jsonify(result)
+
 # ─────────────────────────────────────────────
 #  ROUTES — STATS / MISC
 # ─────────────────────────────────────────────
