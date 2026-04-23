@@ -499,7 +499,7 @@ async function checkServer() {
 // ─────────────────────────────────────────
 function navigate(page) {
   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
-  const pages = ['leaderboard','players','matches','history','add-match'];
+  const pages = ['leaderboard','players','matches','add-match','history'];
   document.querySelectorAll('nav button').forEach((btn, i) => btn.classList.toggle('active', pages[i] === page));
   document.getElementById('page-' + page).classList.add('active');
   if (page === 'leaderboard') loadLeaderboard();
