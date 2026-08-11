@@ -38,6 +38,8 @@ def init_db():
             wins      INTEGER NOT NULL DEFAULT 0,
             losses    INTEGER NOT NULL DEFAULT 0,
             win_streak INTEGER NOT NULL DEFAULT 0,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            deleted_at TEXT,
             created_at TEXT   DEFAULT (datetime('now'))
         );
 
@@ -64,6 +66,14 @@ def init_db():
         );
         """)
 
+        # ── Migration: soft-delete support for players created before this feature ──
+        cols = [r["name"] for r in db.execute("PRAGMA table_info(players)").fetchall()]
+        if "is_active" not in cols:
+            db.execute("ALTER TABLE players ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+        if "deleted_at" not in cols:
+            db.execute("ALTER TABLE players ADD COLUMN deleted_at TEXT")
+        db.commit()
+
 
 # ─────────────────────────────────────────────
 #  MMR HELPERS
@@ -81,7 +91,7 @@ def calc_deltas(winner_slots, loser_slots, db) -> tuple[list, list]:
     - Elo team-strength modifier still applies on top
     """
     # Gather all player MMRs to find the pool average
-    all_mmrs = [r["mmr"] for r in db.execute("SELECT mmr FROM players").fetchall()]
+    all_mmrs = [r["mmr"] for r in db.execute("SELECT mmr FROM players WHERE is_active = 1").fetchall()]
     pool_avg = sum(all_mmrs) / len(all_mmrs) if all_mmrs else 1200
     mmr_spread = max(300, (max(all_mmrs) - min(all_mmrs)) / 2) if len(all_mmrs) > 1 else 300
 
@@ -195,7 +205,9 @@ def index():
 @app.route("/api/players", methods=["GET"])
 def get_players():
     with get_db() as db:
-        rows = db.execute("SELECT * FROM players ORDER BY mmr DESC").fetchall()
+        rows = db.execute(
+            "SELECT * FROM players WHERE is_active = 1 ORDER BY mmr DESC"
+        ).fetchall()
         return jsonify([player_to_dict(r, db) for r in rows])
 
 
@@ -208,55 +220,129 @@ def create_player():
     if len(name) > 32:
         return jsonify({"error": "Name must be 32 characters or fewer"}), 400
 
-    # Optional starting MMR — defaults to 1200 if not provided
-    starting_mmr = data.get("mmr")
-    if starting_mmr is not None:
+    # Optional starting MMR — only validated/applied if the caller actually sent one
+    mmr_provided = data.get("mmr") is not None
+    starting_mmr = None
+    if mmr_provided:
         try:
-            starting_mmr = int(starting_mmr)
+            starting_mmr = int(data.get("mmr"))
         except (TypeError, ValueError):
             return jsonify({"error": "MMR must be a whole number"}), 400
         if not (100 <= starting_mmr <= 9999):
             return jsonify({"error": "MMR must be between 100 and 9999"}), 400
-    else:
-        starting_mmr = 1200
 
     with get_db() as db:
-        try:
-            cur = db.execute(
-                "INSERT INTO players (name, mmr) VALUES (?, ?)", (name, starting_mmr)
+        # Look for an existing player with this name — active OR previously removed.
+        # Names are unique case-insensitively, so this also covers the old
+        # "player already exists" check.
+        existing = db.execute(
+            "SELECT * FROM players WHERE name = ? COLLATE NOCASE", (name,)
+        ).fetchone()
+
+        if existing and existing["is_active"]:
+            return jsonify({"error": "Player already exists"}), 409
+
+        if existing and not existing["is_active"]:
+            # Welcome back — reactivate the SAME row. Because match_slots,
+            # role_counts, and matches were never touched on delete, all of
+            # their old history reattaches automatically. Stats resume as-is
+            # unless an explicit starting MMR was supplied, in which case it
+            # overrides the old MMR.
+            new_mmr = starting_mmr if mmr_provided else existing["mmr"]
+            db.execute(
+                "UPDATE players SET is_active = 1, deleted_at = NULL, mmr = ? WHERE id = ?",
+                (new_mmr, existing["id"])
             )
             db.commit()
-            row = db.execute("SELECT * FROM players WHERE id = ?", (cur.lastrowid,)).fetchone()
-            return jsonify(player_to_dict(row, db)), 201
+            row = db.execute("SELECT * FROM players WHERE id = ?", (existing["id"],)).fetchone()
+            result = player_to_dict(row, db)
+            result["reactivated"] = True
+            return jsonify(result), 200
+
+        # Brand-new player
+        final_mmr = starting_mmr if mmr_provided else 1200
+        try:
+            cur = db.execute(
+                "INSERT INTO players (name, mmr) VALUES (?, ?)", (name, final_mmr)
+            )
+            db.commit()
         except sqlite3.IntegrityError:
             return jsonify({"error": "Player already exists"}), 409
 
+        row = db.execute("SELECT * FROM players WHERE id = ?", (cur.lastrowid,)).fetchone()
+        result = player_to_dict(row, db)
+        result["reactivated"] = False
+        return jsonify(result), 201
+
+
 @app.route("/api/players/<int:player_id>", methods=["DELETE"])
 def delete_player(player_id):
+    """
+    Soft-delete: the player row (and every role_count / match_slot / match
+    tied to them) is preserved untouched — only hidden from active views.
+    This keeps match history intact for every OTHER player in those games,
+    instead of blowing away shared matches.
+
+    If a player with the same name is added back later, create_player()
+    reactivates this exact row, so their MMR/W-L/match history all resume
+    automatically — nothing to "merge".
+    """
     with get_db() as db:
-        row = db.execute("SELECT id FROM players WHERE id = ?", (player_id,)).fetchone()
+        row = db.execute("SELECT id, is_active FROM players WHERE id = ?", (player_id,)).fetchone()
         if not row:
             return jsonify({"error": "Player not found"}), 404
+        if not row["is_active"]:
+            return jsonify({"error": "Player already removed"}), 409
 
-        # Remove this player from all match slots, then clean up
-        # orphaned matches (matches where one team now has fewer than 5 players)
-        db.execute("DELETE FROM role_counts WHERE player_id = ?", (player_id,))
-        db.execute("DELETE FROM match_slots WHERE player_id = ?", (player_id,))
-
-        # Delete matches that are now incomplete (lost a player)
-        db.execute("""
-            DELETE FROM matches WHERE id IN (
-                SELECT m.id FROM matches m
-                LEFT JOIN match_slots ms ON ms.match_id = m.id
-                GROUP BY m.id
-                HAVING COUNT(ms.id) < 10
-            )
-        """)
-
-        db.execute("DELETE FROM players WHERE id = ?", (player_id,))
+        db.execute(
+            "UPDATE players SET is_active = 0, deleted_at = datetime('now') WHERE id = ?",
+            (player_id,)
+        )
         db.commit()
         return jsonify({"deleted": player_id})
+        
+@app.route("/api/players/<int:player_id>/profile", methods=["GET"])
+def get_player_profile(player_id):
+    with get_db() as db:
+        # 1. Get base player stats
+        player_row = db.execute("SELECT * FROM players WHERE id = ?", (player_id,)).fetchone()
+        if not player_row:
+            return jsonify({"error": "Player not found"}), 404
+        
+        player_info = player_to_dict(player_row, db)
 
+        # 2. Calculate Synergies (winrate with other players on the same team)
+        synergy_query = """
+            SELECT p.id, p.name,
+                   COUNT(*) as games_played,
+                   SUM(CASE WHEN m.winner = ms1.team THEN 1 ELSE 0 END) as wins
+            FROM match_slots ms1
+            JOIN match_slots ms2 
+              ON ms1.match_id = ms2.match_id AND ms1.team = ms2.team AND ms1.player_id != ms2.player_id
+            JOIN matches m ON ms1.match_id = m.id
+            JOIN players p ON ms2.player_id = p.id
+            WHERE ms1.player_id = ?
+            GROUP BY p.id, p.name
+            HAVING games_played > 0
+            ORDER BY (CAST(SUM(CASE WHEN m.winner = ms1.team THEN 1 ELSE 0 END) AS FLOAT) / games_played) DESC, games_played DESC
+            LIMIT 5
+        """
+        synergies_raw = db.execute(synergy_query, (player_id,)).fetchall()
+        synergies = []
+        for r in synergies_raw:
+            wr = round((r["wins"] / r["games_played"]) * 100)
+            synergies.append({
+                "id": r["id"],
+                "name": r["name"],
+                "games": r["games_played"],
+                "wins": r["wins"],
+                "winrate": wr
+            })
+
+        return jsonify({
+            "player": player_info,
+            "synergies": synergies
+        })
 # ─────────────────────────────────────────────
 #  ROUTES — MATCHES
 # ─────────────────────────────────────────────
@@ -428,10 +514,11 @@ def delete_match(match_id):
 #  ROUTES — HISTORY
 # ─────────────────────────────────────────────
 @app.route("/api/mmr-history", methods=["GET"])
-@app.route("/api/mmr-history", methods=["GET"])
 def get_mmr_history():
     with get_db() as db:
-        players = db.execute("SELECT id, name, mmr FROM players ORDER BY mmr DESC").fetchall()
+        players = db.execute(
+            "SELECT id, name, mmr FROM players WHERE is_active = 1 ORDER BY mmr DESC"
+        ).fetchall()
 
         matches = db.execute("""
             SELECT id, winner, mmr_delta, played_at FROM matches
@@ -488,9 +575,9 @@ def get_mmr_history():
 def get_stats():
     with get_db() as db:
         total_matches = db.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
-        total_players = db.execute("SELECT COUNT(*) FROM players").fetchone()[0]
+        total_players = db.execute("SELECT COUNT(*) FROM players WHERE is_active = 1").fetchone()[0]
         top_player = db.execute(
-            "SELECT name, mmr FROM players ORDER BY mmr DESC LIMIT 1"
+            "SELECT name, mmr FROM players WHERE is_active = 1 ORDER BY mmr DESC LIMIT 1"
         ).fetchone()
         return jsonify({
             "total_matches": total_matches,

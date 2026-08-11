@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rift Records — Local League Tracker</title>
+<title>Rift Records — For all the Melons...</title>
+<link rel="icon" type="image/png" href="/static/melon.png">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Exo+2:ital,wght@0,300;0,400;0,600;1,300&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -246,6 +247,39 @@
   .split-mmr-diff { font-size:.75rem; color:var(--muted); margin-top:.5rem; }
   .split-mmr-diff span { color:var(--gold); font-weight:600; }
 
+/* --- PROFILE PAGE & ROLE THEMES --- */
+  .profile-banner {
+    border: 1px solid var(--border); border-radius: 8px; padding: 2.5rem;
+    margin-bottom: 1.5rem; position: relative; overflow: hidden;
+    background: var(--card); transition: border-color 0.4s;
+  }
+  .profile-banner::before {
+    content: ''; position: absolute; inset: 0;
+    background: var(--theme-bg, radial-gradient(circle at top right, rgba(200,155,60,0.1), transparent 60%));
+    opacity: 0.8; z-index: 0; pointer-events: none;
+  }
+  .profile-banner::after {
+    content: var(--theme-icon, '🛡️'); position: absolute;
+    right: -20px; top: -20px; font-size: 15rem; opacity: 0.04;
+    z-index: 0; pointer-events: none; transform: rotate(15deg);
+  }
+  .profile-banner > * { position: relative; z-index: 1; }
+  
+  .theme-top { --theme-color: #d87c53; --theme-bg: radial-gradient(circle at top right, rgba(216,124,83,0.15), transparent 70%); --theme-icon: '⚔️'; }
+  .theme-jungle { --theme-color: #66bb6a; --theme-bg: radial-gradient(circle at top right, rgba(102,187,106,0.15), transparent 70%); --theme-icon: '🌳'; }
+  .theme-mid { --theme-color: #ab47bc; --theme-bg: radial-gradient(circle at top right, rgba(171,71,188,0.15), transparent 70%); --theme-icon: '🔮'; }
+  .theme-bot { --theme-color: #29b6f6; --theme-bg: radial-gradient(circle at top right, rgba(41,182,246,0.15), transparent 70%); --theme-icon: '🏹'; }
+  .theme-support { --theme-color: #26a69a; --theme-bg: radial-gradient(circle at top right, rgba(38,166,154,0.15), transparent 70%); --theme-icon: '✨'; }
+  .theme-none { --theme-color: var(--gold); --theme-bg: radial-gradient(circle at top right, rgba(200,155,60,0.15), transparent 70%); --theme-icon: '👤'; }
+
+  .profile-name-lg { font-family: 'Rajdhani',sans-serif; font-size: 3rem; font-weight: 700; color: var(--theme-color, var(--text)); text-transform: uppercase; letter-spacing: .05em; line-height: 1; margin-bottom: 0.5rem; text-shadow: 0 0 20px rgba(0,0,0,0.5); }
+  .profile-role-title { font-family: 'Rajdhani',sans-serif; font-size: 1.1rem; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; margin-bottom: 1.5rem; }
+  
+  .synergy-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+  .synergy-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; text-align: center; }
+  .synergy-name { font-family: 'Rajdhani',sans-serif; font-weight: 700; font-size: 1.1rem; color: var(--text); }
+  .synergy-wr { color: var(--theme-color, var(--gold)); font-size: 1.2rem; font-weight: 700; font-family: 'Rajdhani',sans-serif; margin: 0.3rem 0; }
+  .synergy-record { font-size: 0.75rem; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -291,7 +325,7 @@
     <input type="number" id="new-player-mmr" placeholder="Starting MMR (optional)" min="100" max="9999" step="1" style="flex:1;min-width:140px" onkeydown="if(event.key==='Enter')addPlayer()">
     <button class="btn btn-gold" id="add-player-btn" onclick="addPlayer()">Add</button>
   </div>
-  <div class="text-muted mb-2" style="font-size:.78rem">Leave MMR blank to start at <strong style="color:var(--text)">1200</strong>. Set a custom value to place an experienced player at their estimated skill level.</div>
+  <div class="text-muted mb-2" style="font-size:.78rem">Leave MMR blank to start at <strong style="color:var(--text)">1200</strong>. Set a custom value to place an experienced player at their estimated skill level. Re-adding a name that was previously removed restores their old stats and match history — fill in an MMR here to override it instead.</div>
   <div class="player-grid" id="player-grid"></div>
   <div id="players-empty" class="empty-state" style="display:none"><div class="big-icon">⚔️</div><p>No players yet. Add your first summoner above!</p></div>
   <div id="players-loading" class="empty-state"><span class="spinner"></span> Loading...</div>
@@ -441,6 +475,45 @@
     box-shadow:0 8px 24px rgba(0,0,0,.5);
   "></div>
 </div>
+
+<!-- PLAYER PROFILE -->
+<div id="page-profile" class="page">
+  <button class="btn btn-ghost mb-2" onclick="navigate('players')">← Back to Players</button>
+  
+  <div id="profile-loading" class="empty-state"><span class="spinner"></span> Fetching Profile...</div>
+  <div id="profile-content" style="display:none">
+    <!-- Banner -->
+    <div id="profile-banner-container" class="profile-banner">
+      <div class="flex items-center gap-2 mb-2">
+        <div>
+          <div class="profile-name-lg" id="prof-name">Player Name</div>
+          <div class="profile-role-title" id="prof-role">Main Role: Unknown</div>
+        </div>
+        <div style="margin-left: auto; text-align: right;">
+          <div class="player-mmr-label">CURRENT MMR</div>
+          <div class="player-mmr-val" id="prof-mmr" style="font-size: 2.5rem; color: var(--theme-color, var(--blue));">1200</div>
+          <div class="mmr-tier" id="prof-tier" style="margin-top:0.2rem;">Tier</div>
+        </div>
+      </div>
+      
+      <div class="stats-bar" style="margin-bottom:0;">
+        <div class="stat-box" style="background:rgba(15,17,24,0.6);"><div class="stat-box-label">Win Rate</div><div class="stat-box-val" id="prof-wr">—</div></div>
+        <div class="stat-box" style="background:rgba(15,17,24,0.6);"><div class="stat-box-label">Total Games</div><div class="stat-box-val" id="prof-games">—</div></div>
+        <div class="stat-box" style="background:rgba(15,17,24,0.6);"><div class="stat-box-label">Record</div><div class="stat-box-val" id="prof-record" style="font-size:1.4rem; padding-top:0.4rem">—</div></div>
+      </div>
+    </div>
+
+    <!-- Synergies -->
+    <div class="page-title" style="font-size:1.4rem;">🤝 Best Synergies</div>
+    <div class="page-sub">Highest winrates when playing on the same team</div>
+    <div id="prof-synergies" class="synergy-list mb-2"></div>
+    
+    <!-- Roles Played -->
+    <div class="page-title" style="font-size:1.4rem; margin-top:2rem;">🎭 Role Distribution</div>
+    <div id="prof-role-chips" class="role-chips mb-2" style="font-size:1rem;"></div>
+  </div>
+</div>
+
 </div>
 <div id="toast"></div>
 
@@ -499,8 +572,10 @@ async function checkServer() {
 // ─────────────────────────────────────────
 function navigate(page) {
   document.querySelectorAll('.page').forEach(el => el.classList.remove('active'));
-  const pages = ['leaderboard','players','matches','history','add-match'];
-  document.querySelectorAll('nav button').forEach((btn, i) => btn.classList.toggle('active', pages[i] === page));
+  const pages = ['leaderboard','players','matches','add-match','history', 'profile'];
+  document.querySelectorAll('nav button').forEach((btn, i) => {
+    if(pages[i] && pages[i] !== 'profile') btn.classList.toggle('active', pages[i] === page);
+  });
   document.getElementById('page-' + page).classList.add('active');
   if (page === 'leaderboard') loadLeaderboard();
   if (page === 'players')     loadPlayers();
@@ -537,7 +612,7 @@ async function loadLeaderboard() {
       const rank = i + 1;
       const rankClass = rank <= 3 ? `rank-${rank}` : '';
       const roleIcon = p.fav_role ? (ROLE_ICONS[p.fav_role] || '') : '—';
-      return `<tr>
+      return `<tr onclick="loadProfile(${p.id})" style="cursor:pointer;">
         <td><span class="rank-badge ${rankClass}">${rank}</span></td>
         <td style="font-family:'Rajdhani',sans-serif;font-size:1rem;font-weight:600">${displayName(p, players)}</td>
         <td><span class="mmr-badge">${p.mmr}</span></td>
@@ -557,6 +632,60 @@ async function loadLeaderboard() {
   }
 }
 
+async function loadProfile(id) {
+  navigate('profile');
+  const content = document.getElementById('profile-content');
+  const loading = document.getElementById('profile-loading');
+  const banner  = document.getElementById('profile-banner-container');
+  
+  content.style.display = 'none';
+  loading.style.display = '';
+
+  try {
+    const data = await apiFetch(`/api/players/${id}/profile`);
+    const p = data.player;
+    
+    // Set Theme
+    const favRole = p.fav_role;
+    const themeClass = favRole ? `theme-${favRole.toLowerCase()}` : 'theme-none';
+    banner.className = `profile-banner ${themeClass}`;
+
+    // Populate Header
+    document.getElementById('prof-name').innerHTML = p.name;
+    document.getElementById('prof-role').innerHTML = favRole ? `${ROLE_ICONS[favRole]} ${favRole} Main` : 'Flex Player';
+    document.getElementById('prof-mmr').innerText = p.mmr;
+    
+    const tierBadge = document.getElementById('prof-tier');
+    tierBadge.className = `mmr-tier ${p.tier.cls}`;
+    tierBadge.innerText = p.tier.label;
+
+    document.getElementById('prof-wr').innerText = `${p.winrate}%`;
+    document.getElementById('prof-games').innerText = p.games;
+    document.getElementById('prof-record').innerHTML = `<span style="color:var(--green)">${p.wins}W</span> - <span style="color:var(--red)">${p.losses}L</span>`;
+
+    // Populate Roles
+    const roleHtml = Object.entries(p.roles).sort((a,b)=>b[1]-a[1])
+      .map(([r,c]) => `<span class="role-chip" style="padding:0.5rem 1rem; font-size:0.9rem;">${ROLE_ICONS[r]||''} ${r} <span style="color:var(--text); margin-left:0.3rem;">${c}</span></span>`)
+      .join('');
+    document.getElementById('prof-role-chips').innerHTML = roleHtml || '<span class="text-muted">No games played yet.</span>';
+
+    // Populate Synergies
+    const synHtml = data.synergies.length ? data.synergies.slice(0,5).map(s => `
+      <div class="synergy-card" style="cursor:pointer;" onclick="loadProfile(${s.id})">
+        <div class="synergy-name">${s.name}</div>
+        <div class="synergy-wr">${s.winrate}%</div>
+        <div class="synergy-record">${s.wins}W - ${s.games - s.wins}L</div>
+      </div>
+    `).join('') : '<div class="text-muted">Not enough shared match history.</div>';
+    
+    document.getElementById('prof-synergies').innerHTML = synHtml;
+
+    loading.style.display = 'none';
+    content.style.display = '';
+  } catch(e) {
+    loading.innerHTML = `<span style="color:var(--red)">⚠ Could not load profile: ${e.message}</span>`;
+  }
+}
 // ─────────────────────────────────────────
 //  PLAYERS
 // ─────────────────────────────────────────
@@ -576,7 +705,8 @@ async function loadPlayers() {
       
         .map(([r,c]) => `<span class="role-chip">${ROLE_ICONS[r]||''} ${r} <span style="color:var(--text)">${c}</span></span>`)
         .join('');
-      return `<div class="player-card ${p.mmr === topMMR && players.length > 1 ? 'is-top-player' : ''}">
+      return `<div class="player-card ${p.mmr === topMMR && players.length > 1 ? 'is-top-player' : ''}" 
+      onclick="loadProfile(${p.id})" style="cursor: pointer;">
         <div class="flex items-center gap-1 mb-1">
           <div class="player-name">${displayName(p, players)}</div> 
           <span class="mmr-tier ${p.tier.cls}" style="margin-left:auto">${p.tier.label}</span>
@@ -599,6 +729,7 @@ async function loadPlayers() {
     loading.innerHTML = `<span style="color:var(--red)">⚠ ${e.message}</span>`;
   }
 }
+
 // ─────────────────────────────────────────
 //  MMR HISTORY CHART
 // ─────────────────────────────────────────
@@ -999,10 +1130,14 @@ async function addPlayer() {
 
   btn.disabled = true;
   try {
-    await apiFetch('/api/players', { method: 'POST', body: JSON.stringify(body) });
+    const result = await apiFetch('/api/players', { method: 'POST', body: JSON.stringify(body) });
     input.value = '';
     mmrInput.value = '';
-    toast(`✅ ${name} added${body.mmr ? ` at ${body.mmr} MMR` : ''}!`);
+    if (result.reactivated) {
+      toast(`♻️ ${name} is back! Resuming at ${result.mmr} MMR with their full history intact.`);
+    } else {
+      toast(`✅ ${name} added${body.mmr ? ` at ${body.mmr} MMR` : ''}!`);
+    }
     loadPlayers();
   } catch(e) {
     toast(`⚠ ${e.message}`, true);
@@ -1012,10 +1147,10 @@ async function addPlayer() {
 }
 
 async function removePlayer(id, name) {
-  if (!confirm(`Remove ${name}? This cannot be undone.`)) return;
+  if (!confirm(`Remove ${name}? Their stats and match history are kept — re-add the same name later to pick up right where they left off.`)) return;
   try {
     await apiFetch(`/api/players/${id}`, { method: 'DELETE' });
-    toast(`${name} removed.`);
+    toast(`${name} removed. Their match history is preserved.`);
     loadPlayers();
   } catch(e) {
     toast(`⚠ ${e.message}`, true);
